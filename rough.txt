@@ -1,0 +1,666 @@
+main
+
+// #include <iostream>
+#include "raytrace_main.h"
+#include "hittable_objects.h"
+#include "hittable_list.h"
+#include "sphere_class.h"
+#include <fstream> // Added for file operations
+#include "camera_class.h"
+#include "material_class.h"
+// #include <cmath>
+
+// #include "color.h"
+// #include "vec_class.h"
+// #include "ray_class.h"
+using namespace std;
+
+
+int main() 
+{
+    hittable_list world;
+    // world.addToListOfObjects(make_shared<sphere>(point(0,0,-1),0.5));
+    // world.addToListOfObjects(make_shared<sphere>(point(0,-100.5,-1),100));
+    auto material_ground = make_shared<lambertian_class>(color(0.8,0.8,0.0));
+    auto material_center = make_shared<lambertian_class>(color(0.1,0.2,0.5));
+    auto material_left = make_shared<metal_class>(color(0.8,0.8,0.8));
+    auto material_right = make_shared<metal_class>(color(0.8,0.6,0.2));
+
+    world.addToListOfObjects(make_shared<sphere>(point(0.0,-100.5,-1.0),100.0,material_ground));
+    world.addToListOfObjects(make_shared<sphere>(point(0.0,0.0,-1.2),0.5,material_center));
+    world.addToListOfObjects(make_shared<sphere>(point(-1.0,0.0,-1.0),0.5,material_left));
+    world.addToListOfObjects(make_shared<sphere>(point(1.0,0.0,-1.0),0.5,material_right));
+
+    camera_class camera;
+    camera.aspect_ratio = 16.0/9.0;
+    camera.image_width=100;
+    camera.samples_per_pixel = 100;
+    camera.max_depth_recursion = 10;
+    camera.render(world);
+    
+
+    return 0;
+}
+
+camera_class.h
+
+#ifndef CAMERA_CLASS_H
+#define CAMERA_CLASS_H
+
+#include "hittable_objects.h"
+#include "color.h"
+#include "raytrace_main.h"
+#include "material_class.h"
+class camera_class
+{
+    public:
+    double aspect_ratio = 1;
+    int image_width = 100;
+    int samples_per_pixel = 10;
+    int max_depth_recursion = 10;
+
+    void render(hittable& world)
+    {
+        initialize_camera();
+        ofstream image("output.ppm");
+        if (!image) {
+            cerr << "Error: Could not open the file for writing." << endl;
+            exit(1);
+        }
+
+        image << "P3\n" << image_width << " " << image_height << "\n255\n"; 
+
+        // for (int j = 0; j < image_height; ++j) {
+        //     for (int i = 0; i < image_width; ++i) {
+        //         auto pixel_center = pixel00_pos + (pixel_delta_u * i) + (pixel_delta_v * j);
+        //         auto ray_direction = pixel_center - camera_center;
+        //         ray r(camera_center,ray_direction);
+        //         color pixel_color = ray_color(r,world);
+        //         fill_color(pixel_color,image);
+        //     }
+        // }
+        for (int j = 0; j < image_height; ++j) {
+            for (int i = 0; i < image_width; ++i) {
+                color pixel_color(0, 0, 0);
+                for(int sample = 0;sample<samples_per_pixel;sample++)
+                {
+                    ray r = get_ray(i,j);
+                    pixel_color += ray_color(r,max_depth_recursion,world);
+                }
+                color temp = pixel_color * pixel_samples_scale;
+                fill_color(temp,image);
+            }
+        }
+        image.close(); 
+        cout << "Image generated successfully in output.ppm" << endl;
+    }
+
+    private:
+    int image_height;
+    point camera_center;
+    point pixel00_pos;
+    vector_class pixel_delta_u;
+    vector_class pixel_delta_v;
+    double pixel_samples_scale;
+
+    void initialize_camera()
+    {
+        image_height = int(image_width/aspect_ratio); //since width/height = aspect_ratio
+        image_height = image_height<1?1:image_height;
+
+        pixel_samples_scale = 1.0 / samples_per_pixel;
+
+        camera_center = point(0,0,0);
+
+        //defining camera parameters
+        auto focal_length = 1.0;
+        auto viewport_height = 2.0;
+        auto viewport_width = aspect_ratio * viewport_height;
+
+        //calculate the viewport vectors;
+        auto viewport_u = vector_class(viewport_width,0,0);
+        auto viewport_v = vector_class(0,-viewport_height,0);
+
+        //calculate the horizontal and vertical distance vectors between pixel centers
+        pixel_delta_u = viewport_u/image_width;
+        pixel_delta_v = viewport_v/image_height;
+
+        //first calculate the corner of the viewport . Then use it to calculate position of upper left pixel
+        auto viewport_corner = camera_center - viewport_u/2 - viewport_v/2 - vector_class(0,0,focal_length);
+        pixel00_pos = viewport_corner +  (pixel_delta_u + pixel_delta_v)* 0.5;
+
+    }
+    ray get_ray(int i,int j)
+    {
+        auto offset = sample_square();
+        auto pixel_sample = pixel00_pos + (pixel_delta_u * (i+ offset.x())) + (pixel_delta_v * (j + offset.y()));
+        auto ray_origin = camera_center;
+        auto ray_direction = pixel_sample - camera_center;
+        return ray(ray_origin,ray_direction);
+    }
+    vector_class sample_square()
+    {
+        return vector_class(random_double(),random_double(),0);
+    }
+    color ray_color(ray& r,int depth, hittable& world)
+    {
+        if(depth<=0) return color(0,0,0);
+
+        hit_record rec;
+
+        if(world.hit(r,interval_class(0,std::numeric_limits<double>::infinity()),rec))
+        {
+            ray scattered;
+            color attenuation;
+            // vector_class direction = vector_class :: randomVectorOnHemisphere(rec.normal);//uniform distribution
+            // vector_class direction = rec.normal + vector_class::randomUnitVector(); //lambertian distribution
+            // ray newRay = ray(rec.p,direction);
+            // return ray_color(newRay,depth-1,world) * 0.9;
+            // return color(rec.normal.x()+1,rec.normal.y()+1,rec.normal.z()+1) * 0.5;
+            if(rec.mat_ptr->scatter(r,rec,attenuation,scattered))
+            {
+                return attenuation * ray_color(scattered,depth-1,world);
+            }
+            return color(0,0,0);
+        }
+        vector_class unit_direction = r.get_direction();
+        unit_direction.normalize();
+        auto t = 0.5*(unit_direction.y() + 1.0);
+        return color(1.0,1.0,1.0)* (1.0-t) + color(0.5,0.7,1.0)*t;
+    }
+
+};
+
+#endif
+
+color.h
+
+#ifndef COLOR_H
+#define COLOR_H
+#include<fstream>
+#include "vec_class.h"
+#include "interval.h"
+#include<iostream>
+using namespace std;
+using color = vector_class;
+
+inline double convert_linear_to_gamma(double linear_compoenent)
+{
+    if(linear_compoenent>0) return sqrt(linear_compoenent);
+}
+
+void fill_color(color& pixel_color, ofstream& image)
+{
+    auto red = pixel_color.x();
+    auto green = pixel_color.y();
+    auto blue = pixel_color.z();
+
+    red = convert_linear_to_gamma(red);
+    green = convert_linear_to_gamma(green);
+    blue = convert_linear_to_gamma(blue);
+    
+    //converting in terms of range 0-255
+    static interval_class intensity(0.000,0.999);
+    int rbyte = int(255 * intensity.clamp(red));
+    int gbyte = int(255 * intensity.clamp(green));
+    int bbyte = int(255 * intensity.clamp(blue));
+    cout<<rbyte<<" "<<gbyte<<" "<<bbyte<<"\n";
+    image<<rbyte<<" "<<gbyte<<" "<<bbyte<<"\n";
+}
+#endif
+
+hittable_list.h
+
+#ifndef HITTABLE_LIST_H
+#define HITTABLE_LIST_H
+
+#include "hittable_objects.h"
+#include<vector>
+#include<memory>
+using namespace std; //if i use this command, i will bring all names into current scope
+// so i will use the below only
+
+// using std::make_shared;
+// using std::shared_ptr;
+
+
+class hittable_list : public hittable{
+    public:
+    vector<shared_ptr<hittable>> objects;
+    hittable_list(){}
+    hittable_list(shared_ptr<hittable> object)
+    {
+        addToListOfObjects(object);
+    }
+    void clear(){objects.clear();}
+    void addToListOfObjects(shared_ptr<hittable> object)
+    {
+        objects.push_back(object);
+    }   
+    bool hit(ray& r,interval_class ray_t,hit_record& rec)
+    {
+        hit_record temp_record;
+        bool hit_anything = false;
+        auto closest_so_far = ray_t.max;
+        for(int i =0;i<objects.size();i++)
+        {
+            if(objects[i]->hit(r,interval_class(ray_t.min,closest_so_far),temp_record))
+            {
+                hit_anything = true;
+                closest_so_far = temp_record.t;
+                rec = temp_record;
+            }
+        }
+        return hit_anything;
+    }
+    
+};
+#endif
+
+hittable_objects.h
+
+#ifndef HITTABLE_OBJECTS_H
+#define HITTABLE_OBJECTS_H
+
+#include "ray_class.h"
+#include "interval.h"
+
+class material_class;
+class hit_record
+{
+    public:
+    point p;
+    vector_class normal;
+    shared_ptr<material_class> mat_ptr;
+    double t;
+    bool front_face; // if true then we are talking about the outer face of the object. if false then we are talking about the interior face of the object.
+    void set_face_normal(ray& r,vector_class& normal)
+    {
+        vector_class ray_direction = r.get_direction();
+        front_face = ray_direction.dot(normal) < 0;
+        normal = front_face  ? normal : -normal;
+    }
+};
+
+class hittable
+{
+    public:
+    virtual ~hittable() = default;
+    virtual bool hit(ray& r, interval_class ray_t, hit_record& rec) = 0;
+    bool front_face;
+};
+
+
+#endif
+
+interval.h
+
+#ifndef INTERVAL_H
+#define INTERVAL_H
+
+#include <limits>
+class interval_class
+{
+    public:
+
+    double min;
+    double max;
+
+    interval_class()
+    {
+        min = std::numeric_limits<double>::infinity();
+        max = -std::numeric_limits<double>::infinity();
+    }
+    interval_class(double min,double max)
+    {
+        this->min = min;
+        this->max = max;
+    }
+    double size()
+    {
+        return max-min;
+    }
+    bool contains(double x)
+    {
+        return x>=min && x<=max;
+    }
+    bool surrounds(double x)
+    {
+        return x>min && x< max;
+    }
+    double clamp(double x)
+    {
+        return x<min?min:(x>max?max:x);
+    }
+    static interval_class empty, universe;
+};
+
+interval_class interval_class::empty = interval_class(std::numeric_limits<double>::infinity(),-std::numeric_limits<double>::infinity());
+interval_class interval_class::universe = interval_class(-std::numeric_limits<double>::infinity(),std::numeric_limits<double>::infinity());
+
+#endif
+
+material_class.h
+
+#ifndef MATERIAL_CLASS_H
+#define MATERIAL_CLASS_H
+
+#include "vec_class.h"
+#include "hittable_objects.h"
+
+class material_class{
+    public:
+    virtual ~material_class() = default;
+    
+    virtual bool scatter(ray &r_in,hit_record& rec,color& attenuation, ray& scattered)
+    {
+        return false;
+    }
+};
+
+class lambertian_class : public material_class
+{
+    public:
+    lambertian_class(const color& albedo){ this->albedo = albedo;}
+    bool scatter(ray& r_in,hit_record& rec, color& attenuation,ray& scattered)override
+    {
+        auto scatter_direction = rec.normal + vector_class::randomUnitVector();
+        if(scatter_direction.near_zero())
+        {
+            scatter_direction = rec.normal;
+        }
+        scattered =ray(rec.p,scatter_direction);
+        attenuation = albedo;
+        return true;
+    }
+
+    private:
+    color albedo;
+};
+
+class metal_class : public material_class
+{
+    public:
+    metal_class(const color& albedo)
+    {
+        this->albedo = albedo;
+    }
+    bool scatter(ray& r_in,hit_record& rec, color& attenuation,ray& scattered)override
+    {
+        vector_class incidentRay = r_in.get_direction();
+        incidentRay.normalize();
+        vector_class reflected = vector_class::reflect(incidentRay,rec.normal);
+        scattered = ray(rec.p,reflected);
+        attenuation = albedo;
+        return true;
+    }
+    private:
+    color albedo;
+};
+#endif
+
+ray_class.h
+
+#ifndef RAY_CLASS_H
+#define RAY_CLASS_H
+
+#include "vec_class.h"
+
+class ray_class{
+    public:
+    ray_class() {}
+
+    ray_class(point origin, vector_class direction)
+    {
+        orig = origin;
+        dir = direction;
+    }
+    
+    //getter methods
+
+    point& get_origin(){return orig;}
+    vector_class& get_direction(){return dir;}
+
+    //setter methods
+    void set_origin(point& origin){orig = origin;}
+    void set_direction(vector_class& direction){dir = direction;}
+    
+    point at(double t){ return orig + dir * t;}
+    private:
+    point orig;
+    vector_class dir;
+};
+using ray = ray_class;
+#endif
+
+raytace_main.h
+
+#ifndef RAYTRACE_MAIN_H
+#define RAYTRACE_MAIN_H
+
+#include <cmath>
+#include<iostream>
+#include<limits>
+#include<memory>
+#include<random>
+using namespace std;
+
+const double infinity = std::numeric_limits<double>::infinity();
+const double pi = 3.1415926535897932385;
+
+inline double degrees_to_radians(double degrees)
+{
+    return degrees*pi/180.0;
+}
+inline double random_double()
+{
+    static std::uniform_real_distribution<double> distribution(0.0,1.0);
+    static std::mt19937 generator;
+    return distribution(generator);
+}
+
+inline double random_double(double min, double max) {
+    // Returns a random real in [min,max).
+    return min + (max-min)*random_double();
+}
+
+#include "color.h"
+#include "ray_class.h"
+#include "vec_class.h"
+#include "interval.h"
+#endif
+
+sphere_class.h
+
+#ifndef SPHERE_CLASS_H
+#define SPHERE_CLASS_H
+
+#include "hittable_objects.h"
+#include "vec_class.h"
+
+class sphere : public hittable
+{
+    public:
+    sphere(point center ,double radius,shared_ptr<material_class> mat)
+    {
+        this->center = center;
+        this->radius = radius;
+        this->material_ptr = mat;
+    }
+
+    bool hit(ray& r,interval_class ray_t, hit_record& rec)
+    {
+        vector_class oc = center - r.get_origin();
+        auto a = r.get_direction().dot(r.get_direction());
+        auto b = -2.0 * oc.dot(r.get_direction());
+        auto c = oc.dot(oc) - radius*radius;
+        auto discriminant = b*b - 4*a*c;
+        
+        if(discriminant <0) return false;
+        auto sqrt_discriminant = sqrt(discriminant);
+        auto root = (- b - sqrt_discriminant)/(2.0*a);
+        if(! ray_t.surrounds(root))
+        {
+            root = (- b + sqrt_discriminant)/(2.0*a);
+            if(! ray_t.surrounds(root))
+            {
+                return false;
+            }
+        }
+        rec.t = root;
+        rec.p = r.at(rec.t);
+        rec.normal = (rec.p - center);
+        rec.normal.normalize();
+        rec.set_face_normal(r,rec.normal);
+        return true;
+    }   
+    private:
+    point center;
+    double radius;
+    shared_ptr<material_class> material_ptr;
+};
+
+#endif
+
+vec_class.h
+
+#ifndef VECTOR_CLASS_H
+#define VECTOR_CLASS_H
+
+#include <iostream>
+#include<cmath>
+#include "raytrace_main.h"
+class vector_class{
+    public:
+    double e[3];
+
+    vector_class()
+    {
+        e[0] = 0;
+        e[1] = 0;
+        e[2] = 0;
+    }
+    vector_class(double e0, double e1, double e2)
+    {
+        e[0] = e0;
+        e[1] = e1;
+        e[2] = e2;
+    }
+
+    double x(){return e[0];}
+    double y(){return e[1];}
+    double z(){return e[2];}
+
+    vector_class operator-() const {return vector_class(-e[0], -e[1], -e[2]);}
+    double operator[](int i) const {return e[i];}
+    double& operator[](int i){return e[i];}
+
+    vector_class& operator+=(const vector_class& v)
+    {
+        e[0] += v.e[0];
+        e[1] += v.e[1];
+        e[2] += v.e[2];
+        return *this;
+    }
+    vector_class& operator *=(double t)
+    {
+        e[0] = t*e[0];
+        e[1] = t*e[1];
+        e[2] = t* e[2];
+        return *this;
+    }
+    vector_class& operator /=(double t)
+    {
+        e[0] = e[0]/t;
+        e[1] = e[1]/t;
+        e[2] = e[2]/t;
+        return *this;
+    }
+    vector_class operator/(double t)
+    {
+        return vector_class(e[0]/t, e[1]/t, e[2]/t);
+    }
+    double squared_length()
+    {
+        return e[0]*e[0] + e[1]*e[1] + e[2]*e[2];
+    }
+    double length()
+    {
+        return sqrt(squared_length());
+    }
+    vector_class operator+(vector_class v2)
+    {
+        return vector_class(this->e[0] + v2.e[0], this->e[1] + v2.e[1], this->e[2] + v2.e[2]);
+    }
+    vector_class operator-(vector_class v2)
+    {
+        return vector_class(this->e[0] - v2.e[0], this->e[1] - v2.e[1], this->e[2] - v2.e[2]);
+    }
+    vector_class operator*(double t)
+    {
+        return vector_class(this->e[0]*t, this->e[1]*t, this->e[2]*t);
+    }
+    double dot(vector_class v2)
+    {
+        return this->e[0]*v2.e[0] + this->e[1]*v2.e[1] + this->e[2]*v2.e[2];
+    }
+    vector_class cross(const vector_class & v) 
+    {
+        return vector_class(e[1] * v.e[2] - e[2] * v.e[1],e[2] * v.e[0] - e[0] * v.e[2],e[0] * v.e[1] - e[1] * v.e[0]);
+    }
+    void normalize()
+    {
+        double l = length();
+        e[0] = e[0]/l;
+        e[1] = e[1]/l;
+        e[2] = e[2]/l;
+    }
+    vector_class operator*(vector_class v2)
+    {
+        return vector_class(this->e[0]*v2.e[0], this->e[1]*v2.e[1], this->e[2]*v2.e[2]);
+    }
+    static vector_class random() {
+        return vector_class(random_double(), random_double(), random_double());
+    }
+    static vector_class random(double min, double max) {
+        return vector_class(random_double(min,max), random_double(min,max), random_double(min,max));
+    }
+    static vector_class randomUnitVector()
+    {
+        while(true)
+        {
+            auto p = vector_class::random(-1,1);
+            auto lengthOfRandomVector = p.squared_length();
+            if(1e-160 < lengthOfRandomVector && lengthOfRandomVector < 1)
+            {
+                return p/lengthOfRandomVector;
+            }
+        }
+    }
+    static vector_class randomVectorOnHemisphere(vector_class normal)
+    {
+        vector_class unitVectorInSphere = randomUnitVector();
+        if(unitVectorInSphere.dot(normal) > 0.0)
+        {
+            return unitVectorInSphere;
+        }
+        else
+        {
+            return -unitVectorInSphere;
+        }
+    }
+    bool near_zero()
+    {
+        auto s = 1e-8;
+        return (std::fabs(e[0]) < s) && (std::fabs(e[1]) < s) && (std::fabs(e[2]) < s);
+    }
+    static vector_class reflect(vector_class& v, vector_class& n)
+    {
+        return v - (n * (2 * v.dot(n)));
+    }
+};
+
+using point = vector_class;
+
+
+#endif
